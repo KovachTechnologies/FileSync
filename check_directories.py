@@ -1,8 +1,21 @@
-from pathlib import Path
+#!/usr/bin/env python3
+"""
+Check Directories — Find files in SOURCE that exist (by content) in TARGET.
+
+Compares files between a source directory (non-recursive) and a target directory (recursive).
+Can match by content hash only, or by filename (case-insensitive) + hash.
+
+Useful for identifying duplicates before cleanup or sync operations.
+"""
+
+import argparse
 import hashlib
 import os
+from pathlib import Path
+from typing import List, Tuple
 
-def compute_file_hash(filepath, hash_algo="sha256", chunk_size=1024*1024):
+
+def compute_file_hash(filepath: Path, hash_algo: str = "sha256", chunk_size: int = 1024 * 1024) -> str:
     """Compute hash of a file. Reads in chunks → memory efficient."""
     hash_func = hashlib.new(hash_algo)
     try:
@@ -16,12 +29,12 @@ def compute_file_hash(filepath, hash_algo="sha256", chunk_size=1024*1024):
 
 
 def find_and_report_matches(
-    source_dir,
-    target_dir,
-    hash_algorithm="sha256",
-    print_progress=True,
-    match_by_hash_only=False
-):
+    source_dir: Path,
+    target_dir: Path,
+    hash_algorithm: str = "sha256",
+    print_progress: bool = True,
+    match_by_hash_only: bool = False
+) -> List[Tuple[Path, Path]]:
     """
     Finds files in source_dir (non-recursive) that have identical content
     anywhere in target_dir (recursive).
@@ -30,10 +43,12 @@ def find_and_report_matches(
         match_by_hash_only : bool
             If True:  match purely by content hash (filename is ignored)
             If False: match only if both filename (case-insensitive) AND hash match
-    Returns list of (source_path, target_path) tuples for matches.
+
+    Returns:
+        List of (source_path, target_path) tuples for matches.
     """
-    source_path = Path(source_dir).resolve()
-    target_path = Path(target_dir).resolve()
+    source_path = source_dir.resolve()
+    target_path = target_dir.resolve()
 
     # ── Phase 1: Hash all files in source (non-recursive)
     source_hashes = {}          # hash -> source path
@@ -76,7 +91,7 @@ def find_and_report_matches(
     print(f"→ Found {len(source_hashes)} unique source files (by content)")
 
     # ── Phase 2: Walk target recursively and compare
-    matches = []  # list of (source_path, target_path)
+    matches: List[Tuple[Path, Path]] = []  # (source_path, target_path)
 
     print(f"\nScanning target recursively: {target_path}")
     print(f"Matching mode: {'hash only' if match_by_hash_only else 'name + hash'}")
@@ -106,7 +121,11 @@ def find_and_report_matches(
     return sorted(matches, key=lambda x: x[1])
 
 
-def delete_matching_source_files(matches, dry_run=True):
+def delete_matching_source_files(
+    matches: List[Tuple[Path, Path]],
+    target_dir: Path,
+    dry_run: bool = True
+) -> None:
     """
     Deletes source files that have matches in target.
     Use dry_run=True to only print what would be deleted.
@@ -135,7 +154,7 @@ def delete_matching_source_files(matches, dry_run=True):
 
     if dry_run:
         print("\nDRY RUN — no files were actually deleted.")
-        print("Set dry_run=False to perform deletion.")
+        print("Use --no-dry-run to perform deletion (after confirmation).")
         return
 
     confirm = input("\nDelete these files? [y/N]: ").strip().lower()
@@ -157,32 +176,86 @@ def delete_matching_source_files(matches, dry_run=True):
     print(f"\nSummary: {deleted} deleted, {failed} failed.")
 
 
-# ────────────────────────────────────────────────
-#           Main execution
-# ────────────────────────────────────────────────
-if __name__ == "__main__":
-    SOURCE_FOLDER = "/Volumes/Expansion/PICS"
-    TARGET_FOLDER = "/Users/danielkovach/Documents/PICS"
+def main():
+    parser = argparse.ArgumentParser(
+        description="Find files in SOURCE (non-recursive) that exist by content in TARGET (recursive).",
+        epilog="Examples:\n"
+               "  python check_directories.py /path/to/source /path/to/target\n"
+               "  python check_directories.py pics backups --hash-only --no-progress --no-dry-run\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    parser.add_argument(
+        "source",
+        type=Path,
+        help="Source directory (checked non-recursively)"
+    )
+    parser.add_argument(
+        "target",
+        type=Path,
+        help="Target directory (scanned recursively)"
+    )
+    parser.add_argument(
+        "--hash-only",
+        action="store_true",
+        help="Match files by hash only (ignore filenames)"
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_false",
+        dest="progress",
+        help="Disable progress messages during target scan"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help="Only show what would be deleted (default: true)"
+    )
+    parser.add_argument(
+        "--no-dry-run",
+        action="store_false",
+        dest="dry_run",
+        help="Actually delete matching source files (after confirmation)"
+    )
+    parser.add_argument(
+        "--hash-algo",
+        default="sha256",
+        choices=["md5", "sha1", "sha256", "sha512"],
+        help="Hash algorithm to use (default: sha256)"
+    )
+
+    args = parser.parse_args()
+
+    # Resolve paths
+    source_dir = args.source.resolve()
+    target_dir = args.target.resolve()
+
+    if not source_dir.is_dir():
+        parser.error(f"Source is not a directory: {source_dir}")
+    if not target_dir.is_dir():
+        parser.error(f"Target is not a directory: {target_dir}")
 
     print("=== Finding exact content matches ===\n")
 
     matches = find_and_report_matches(
-        SOURCE_FOLDER,
-        TARGET_FOLDER,
-        hash_algorithm="sha256",
-        print_progress=True,
-        match_by_hash_only=False       # ← change this flag to control behavior
-                                      # True  = match by hash only (ignore names)
-                                      # False = match by name AND hash (original)
+        source_dir=source_dir,
+        target_dir=target_dir,
+        hash_algorithm=args.hash_algo,
+        print_progress=args.progress,
+        match_by_hash_only=args.hash_only
     )
 
     if matches:
         print(f"\nFound {len(matches)} match(es)\n")
-        # Optional: show matches
-        # for src, tgt in matches:
-        #     print(f"  {src}  →  {tgt}")
-
-        # Perform deletion (careful!)
-        delete_matching_source_files(matches, dry_run=True) # dry_run = False deletes the files after prompting the user
+        delete_matching_source_files(
+            matches=matches,
+            target_dir=target_dir,
+            dry_run=args.dry_run
+        )
     else:
         print("\nNo matching files found (by content). Nothing to delete.")
+
+
+if __name__ == "__main__":
+    main()

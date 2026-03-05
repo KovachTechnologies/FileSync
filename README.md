@@ -63,6 +63,27 @@ python3 filesync.py --source /path/to/source --destination /path/to/destination 
 `--destination`: Specify the destination directory (required).
 `--keep-db`: Retain the files.db SQLite database after syncing (optional).
 
+# check-duplicates
+
+Find files in a source folder that already exist (by content) in a target folder.
+
+## Usage
+
+```bash
+# Basic check (dry-run)
+python check_directories.py ./photos /mnt/backup/photos
+
+# Match by hash only, no progress, actually delete if confirmed
+python check_directories.py pics backups --hash-only --no-progress --no-dry-run
+```
+
+## Options
+
+`--hash-only`: Ignore filenames, match by content only
+`--no-progress`: Quieter output during scan
+`--no-dry-run`: Perform deletion (with confirmation)
+`--hash-algo`: Choose md5, sha1, sha256 (default), sha512
+
 ## Testing
 FileSync includes a comprehensive test suite to verify its functionality. The tests cover:
 
